@@ -113,7 +113,17 @@ Checks and actual results:
 | Followed my own README example (MAL Standard Spanish €260 → €270) in memory | **My first README draft was wrong**: it said one test would fail, but **three** failed (the 3-week test and both 2-week Málaga tests). I corrected the README to show the real failing output and the new totals (€580 → €600, €1,000 → €1,020). |
 | Page unchanged | Compared the rendered text of all 5 cards on the local page (new code, `quote-text.js` loaded) and the live site (old code). **Identical** SHA-256 over 4,179 characters. No console errors. |
 
+### Prompt 7: publish the readability pass
+
+> Yes: commit these changes, push to GitHub, and run npm run deploy, then verify the live page.
+
+| Step | Actual result |
+|---|---|
+| Commit and push | `1f81d70` pushed to `main` |
+| `npm run deploy` | **26 passed.** Uploaded the 5 changed files (`app.js`, `catalog.js`, `pricing.js`, `requests.js`, new `quote-text.js`); the other 3 were already up. Version `f4233210-…`. |
+| Live check | New code loaded (`quote-text.js` 200, all 7 JS/CSS files 200). Card text is **identical to before** (same SHA-256 `45c94f00…`). Totals €2,220 / €1,485 / €1,800 / €1,840 / Not available. No console errors. This time the first load after deploying was not stale. |
+| Phone width and stray files | 375 px: no horizontal scroll. `/tests/`, `/README.md`, `/package.json` and the PDF all return 404. |
+
 ### Not done yet
 
-- Commit, push and redeploy this readability pass. The page output is identical, but these steps publish code, so they wait for approval.
 - Add `C:\Program Files\nodejs` to the system PATH, so `node`/`npm` work in new terminals (a system setting, left for the user).
