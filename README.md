@@ -70,7 +70,7 @@ Edit `src/catalog.js` or `src/requests.js`. The page and tests pick up the chang
 
 ## Deploying to Cloudflare
 
-Live at **https://trip-price-test.ansh605-0e3.workers.dev**
+Live at **https://trip-price-test.ansh605-0e3.workers.dev**. Source code: https://github.com/AnshKapoor/trip-price-test
 
 It's hosted as Cloudflare Workers static assets, which Wrangler 4.151 uses for new Pages projects. There is no Worker script: Cloudflare serves the files directly.
 

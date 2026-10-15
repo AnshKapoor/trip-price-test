@@ -71,7 +71,23 @@ What Claude built: `src/catalog.js`, `src/requests.js`, `src/pricing.js`, `src/f
 | Live check at phone width (375×812, Android UA) | No horizontal scroll (`scrollWidth` 375 = `clientWidth` 375) |
 | Odd result | On the **first** page load after deploying, `styles.css` returned 404. The reload returned 200, and 24 follow-up requests (styles, page, script, 8 rounds each) all returned 200. This looks like propagation delay right after the deploy. It did not happen again. |
 
+### Prompt 5: GitHub repo and "How I worked"
+
+> Yes: initialise git, create a public GitHub repo with gh, then add the How I worked section and source link to the page and redeploy.
+
+| Step | Actual result |
+|---|---|
+| Checked `gh` | **Not installed** (checked the PATH and the usual install folders, after the Node mistake). Git 2.55 was present, with no author identity set. |
+| Asked the user | The user approved installing gh with winget, and using the GitHub noreply email as commit author (set for this repo only). |
+| `winget install --id GitHub.cli` | First attempt: **exit 1602, "You cancelled the installation"**, because the Windows admin prompt was not accepted. Asked the user, who chose to retry and accept it. Second attempt: installed gh 2.102.0. |
+| `gh auth login --web` in a visible terminal tab | The user answered the prompts and entered the one-time code on github.com. The first "done" was early: `gh auth status` said not logged in, and the tab was still waiting for Enter. After the user pressed Enter: logged in as **AnshKapoor**. |
+| Chose what to publish | `.gitignore` excludes `*.pdf` (the task brief) and `.claude/`, plus `node_modules/`, `dist/` and `.wrangler/`. Added `.gitattributes` (`eol=lf`). 19 files committed. |
+| Wrote the "How I worked" section in `index.html` | Prompts, the Node mistake and how it was caught, the checks, and the deploy path. Rendered locally and checked at 375 px (no horizontal scroll). |
+| Filled in the GitHub link with PowerShell | `Set-Content -Encoding utf8` (Windows PowerShell 5.1) **added a BOM** to `index.html`. Found it by checking the first bytes (`ef bb bf`), then removed it. The non-ASCII text (€, −, á) was still intact. |
+| `gh repo create trip-price-test --public --source . --push` | https://github.com/AnshKapoor/trip-price-test, **PUBLIC**. Commit `2763036` by `Ansh Kapoor <32305554+AnshKapoor@users.noreply.github.com>`. The repo root lists no PDF and no `.claude/`. Both links on the page return 200. |
+| `npm run deploy` | 22 passed. Uploaded only the 2 changed files (`index.html`, `styles.css`; the other 5 were already up). Version `61c7a61d-…`. |
+| Live check | Totals unchanged and the "How I worked" section is present with real links. **The first load after deploying used the old `styles.css`**: the browser revalidated it (300 bytes) and kept the stale copy. A direct fetch already returned the new file, and the next load applied it. Same just-after-deploy effect as in Prompt 4. 375 px: no horizontal scroll. |
+
 ### Not done yet
 
 - Add `C:\Program Files\nodejs` to the system PATH, so `node`/`npm` work in new terminals (a system setting, left for the user).
-- The "How I worked" section and the source-code link on the page itself, which the PDF asks for. The deployment URL is known now. The GitHub repository does not exist yet.
