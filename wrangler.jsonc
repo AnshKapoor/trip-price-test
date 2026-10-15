@@ -1,0 +1,10 @@
+// Cloudflare Workers static assets: serves the files built into dist/ (see scripts/build.js).
+// No Worker script; Cloudflare serves the HTML, CSS and JS modules directly.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "trip-price-test",
+  "compatibility_date": "2026-10-15",
+  "assets": {
+    "directory": "./dist"
+  }
+}

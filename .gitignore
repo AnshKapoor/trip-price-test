@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.wrangler/
+
+# Not published: the task brief (personal copy) and local Claude Code settings.
+*.pdf
+.claude/

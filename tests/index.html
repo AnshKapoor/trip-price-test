@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricing Tests</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #1a1f29; }
+    .pass { color: #0b5f56; }
+    .fail { color: #a11a1a; font-weight: 700; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Pricing tests</h1>
+  <p id="summary">Running…</p>
+  <ol id="results"></ol>
+  <script type="module">
+    import { runTests } from "./harness.js";
+    import { tests } from "./pricing.tests.js";
+    const results = runTests(tests);
+    const list = document.getElementById("results");
+    for (const r of results) {
+      const li = document.createElement("li");
+      li.className = r.passed ? "pass" : "fail";
+      li.textContent = `${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.error}`;
+      list.append(li);
+    }
+    const failed = results.filter((r) => !r.passed).length;
+    document.getElementById("summary").textContent = `${results.length - failed} passed, ${failed} failed`;
+    document.body.dataset.failed = String(failed);
+  </script>
+</body>
+</html>

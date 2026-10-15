@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Language Trip Prices</title>
+  <meta name="description" content="Five language-trip price quotes, computed from the catalog with every line shown.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1>Language trip prices</h1>
+    <p>Five customer requests, priced from the catalog. Every amount below is calculated by
+      <code>src/pricing.js</code> from <code>src/catalog.js</code> when the page loads. All prices are in euros.</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="quotes-heading">
+      <h2 id="quotes-heading">Quotes</h2>
+      <div id="quotes" class="quotes">
+        <noscript><p>This page needs JavaScript to calculate the prices.</p></noscript>
+      </div>
+    </section>
+
+    <section aria-labelledby="rules-heading" class="rules">
+      <h2 id="rules-heading">Pricing rules used</h2>
+      <ul>
+        <li><strong>Course:</strong> weekly rate × weeks. From 4 weeks on, the lower long-stay rate applies to all weeks.</li>
+        <li><strong>Enrolment fee:</strong> once per booking, per school.</li>
+        <li><strong>Accommodation:</strong> weekly rate × weeks. Only the types listed for that school exist.</li>
+        <li><strong>Seasonal supplement:</strong> belongs to the accommodation. Charged per week for each stay week whose Monday falls in the listed ISO weeks (inclusive).</li>
+        <li>Stays start on the Monday given and last whole weeks.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="how-heading" class="how">
+      <h2 id="how-heading">How I worked</h2>
+
+      <h3>Main prompts to Claude Code</h3>
+      <ol>
+        <li><strong>Analysis before code.</strong> “Extract the catalog and five requests, calculate each one line by line,
+          show the ISO week of every Monday, apply the long-stay rate to all weeks from 4 weeks, list options instead of
+          a partial total. Stop so I can check your answers.” I checked the figures by hand before allowing any code.</li>
+        <li><strong>Build it.</strong> Static HTML, CSS and JavaScript; catalog and requests as data; pricing in its own module;
+          ISO weeks in UTC; no substitution for unavailable accommodation. Tests for the five requests, the 3 versus 4 week boundary,
+          ISO weeks 25/26/35/36, no accommodation in season, accommodation without a supplement, and the year boundary.</li>
+        <li><strong>Run the tests under Node</strong>, then <strong>deploy only the site files</strong> using Cloudflare's skills,
+          then <strong>publish the source</strong> and add this section.</li>
+      </ol>
+
+      <h3>One thing it got wrong, and how I caught it</h3>
+      <p>Claude Code reported that Node.js was not installed, because <code>node</code> was not on the PATH, and worked around it by running the tests
+        in a browser. When I asked it to install Node, the installer failed. The installer log said a newer Node.js (v26) was already installed in
+        <code>C:\Program Files\nodejs</code> but missing from the PATH. Claude Code then ran <code>npm test</code> with that Node.
+        All 22 tests passed, including runs in three time zones from UTC−11 to UTC+14.</p>
+
+      <h3>How I checked its work</h3>
+      <ul>
+        <li>Confirmed the hand calculation (€2,220 / €1,485 / €1,800 / €1,840 / not available) before any code was written.</li>
+        <li>Broke the 4-week rule on purpose. The relevant tests failed (€1,040 instead of €940), then passed again after reverting.</li>
+        <li>Compared the ISO-week function with Python's <code>isocalendar()</code> for every day from 2020 to 2032 (4,749 days, identical).</li>
+        <li>Checked the live site: correct totals, phone width without horizontal scroll, and no stray files (the tests and the task PDF return 404).</li>
+      </ul>
+
+      <h3>How it reached Cloudflare</h3>
+      <p>Wrangler (via Cloudflare's skills in Claude Code), signed in with <code>wrangler login</code>. Wrangler 4.151 now sends new Pages
+        projects to Workers, so the site is served as <strong>Workers static assets</strong>. <code>npm run deploy</code> runs the tests,
+        copies only <code>index.html</code>, <code>styles.css</code> and <code>src/</code> into <code>dist/</code>, and runs <code>wrangler deploy</code>.</p>
+
+      <p class="source-link"><strong>Source code:</strong> <a href="https://github.com/AnshKapoor/trip-price-test">github.com/AnshKapoor/trip-price-test</a>.
+        Full step-by-step log: <a href="https://github.com/AnshKapoor/trip-price-test/blob/main/WORKLOG.md">WORKLOG.md</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
