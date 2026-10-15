@@ -1,10 +1,11 @@
 import { catalog } from "../src/catalog.js";
 import { requests } from "../src/requests.js";
-import { priceRequest, isoWeek, parseDate } from "../src/pricing.js";
+import { priceRequest, isoWeek, parseDate, isInSeasonalRange } from "../src/pricing.js";
+import { describeCharges, explainQuote, describeProblem } from "../src/quote-text.js";
 import { assert, assertEqual } from "./harness.js";
 
 const request = (id) => requests.find((r) => r.id === id);
-const amounts = (quote) => Object.fromEntries(quote.lines.map((l) => [l.key, l.amount]));
+const amounts = (quote) => quote.charges;
 const week = (isoDate) => isoWeek(parseDate(isoDate));
 
 // Málaga host family: €270/week, seasonal €35/week in ISO weeks 26–35.
@@ -43,9 +44,12 @@ export const tests = [
   { name: "Request 5: studio apartment in Málaga is unavailable, no total, options listed", fn() {
     const q = priceRequest(catalog, request(5));
     assertEqual(q.ok, false);
-    assert(!("total" in q) && !("lines" in q), "must not carry a total or partial lines");
-    assert(q.reason.includes("Studio apartment"), "reason should name the missing type");
-    assertEqual(q.available.map((o) => o.name),
+    assertEqual(q.problem, "unknown-accommodation");
+    assert(!("total" in q) && !("charges" in q), "must not carry a total or partial charges");
+    const text = describeProblem(q, catalog);
+    assert(text.reason.includes("Studio apartment"), "reason should name the missing type");
+    assert(!/€\s?\d/.test(text.reason), "reason must not contain a price");
+    assertEqual(text.options.map((o) => o.name),
       ["Host family, single room, half board", "Shared apartment, single room"]);
   } },
 
@@ -120,11 +124,60 @@ export const tests = [
   // Input checks.
   { name: "Start date that is not a Monday is rejected", fn() {
     const q = priceRequest(catalog, { school: "MAL", course: "Standard Spanish", weeks: 1, start: "2027-07-06", accommodation: null });
-    assertEqual(q.ok, false);
+    assertEqual(q.problem, "not-a-monday");
   } },
   { name: "Unknown course is rejected and the school's courses are listed", fn() {
     const q = priceRequest(catalog, { school: "NIC", course: "Intensive French", weeks: 1, start: "2027-07-05", accommodation: null });
-    assertEqual(q.ok, false);
-    assertEqual(q.available.map((o) => o.name), ["Standard French"]);
+    assertEqual(q.problem, "unknown-course");
+    assertEqual(describeProblem(q, catalog).options.map((o) => o.name), ["Standard French"]);
+  } },
+  { name: "Seasonal range that wraps over New Year: [51, 2] includes 51–53 and 1–2 only", fn() {
+    assertEqual([50, 51, 53, 1, 2, 3].map((w) => isInSeasonalRange(w, [51, 2])), [false, true, true, true, true, false]);
+  } },
+
+  // The displayed lines are exactly the computed charges.
+  { name: "Displayed lines come from priceRequest and add up to the total, for every request", fn() {
+    for (const r of requests) {
+      const q = priceRequest(catalog, r);
+      if (!q.ok) continue;
+      const shown = describeCharges(q).map((line) => line.amount);
+      assertEqual(shown, Object.values(q.charges), `request ${r.id} lines`);
+      assertEqual(shown.reduce((a, b) => a + b, 0), q.total, `request ${r.id} total`);
+      assert(explainQuote(q).length > 0, `request ${r.id} explanation`);
+    }
+  } },
+
+  // Data checks: catch typos when someone edits catalog.js or requests.js.
+  { name: "Catalog data is complete and consistent", fn() {
+    const isPrice = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
+    const codes = catalog.schools.map((s) => s.code);
+    assertEqual(new Set(codes).size, codes.length, "school codes must be unique");
+    for (const s of catalog.schools) {
+      assert(isPrice(s.enrolmentFee), `${s.code}: enrolmentFee must be a number`);
+      assert(s.courses.length > 0, `${s.code}: needs at least one course`);
+      for (const c of s.courses) {
+        assert(isPrice(c.weekly) && isPrice(c.weekly4plus), `${s.code} "${c.name}": weekly and weekly4plus must be numbers`);
+        assert(c.weekly4plus <= c.weekly, `${s.code} "${c.name}": long-stay rate should not be higher than the weekly rate`);
+      }
+      for (const a of s.accommodation) {
+        assert(isPrice(a.weekly), `${s.code} "${a.type}": weekly must be a number`);
+        if (a.seasonal) {
+          const [from, to] = a.seasonal.isoWeeks ?? [];
+          assert([from, to].every((w) => Number.isInteger(w) && w >= 1 && w <= 53),
+            `${s.code} "${a.type}": seasonal.isoWeeks must be [from, to] with weeks 1–53`);
+          assert(isPrice(a.seasonal.perWeek), `${s.code} "${a.type}": seasonal.perWeek must be a number`);
+        }
+      }
+    }
+  } },
+  { name: "Every customer request has a unique id and points at a real school and course", fn() {
+    const ids = requests.map((r) => r.id);
+    assertEqual(new Set(ids).size, ids.length, "request ids must be unique");
+    for (const r of requests) {
+      const school = catalog.schools.find((s) => s.code === r.school);
+      assert(school, `request ${r.id}: unknown school "${r.school}"`);
+      assert(school.courses.some((c) => c.name === r.course), `request ${r.id}: "${r.course}" is not a course at ${r.school}`);
+      assert(typeof r.text === "string" && r.text.length > 0, `request ${r.id}: text is missing`);
+    }
   } },
 ];

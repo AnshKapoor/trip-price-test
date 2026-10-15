@@ -1,5 +1,12 @@
-// The five customer requests from the PDF: the customer's words, plus how we read them.
-// accommodation: an accommodation type name, or null when the customer needs none.
+// The customer requests shown on the page: the customer's own words (text), plus how we read them.
+//   id             Unique number; cards appear in the order of this list.
+//   school         A school code from catalog.js ("MAL", "DUB", "NIC").
+//   course         Must match a course name in that school exactly (including capitals).
+//   weeks          Whole number of weeks, 1 or more.
+//   start          First Monday of the stay, as "YYYY-MM-DD".
+//   accommodation  An accommodation type name from that school, spelled exactly as in catalog.js,
+//                  or null when the customer needs none. A name the school does not have
+//                  (like "Studio apartment" below) is shown as "cannot be priced", never substituted.
 export const requests = [
   {
     id: 1,

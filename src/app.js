@@ -1,9 +1,13 @@
-// Renders one card per customer request. All numbers come from priceRequest().
+// Page rendering: one card per customer request.
+// Every amount shown comes from priceRequest() (pricing.js); the wording comes from quote-text.js.
+// Nothing here calculates a price.
 import { catalog } from "./catalog.js";
 import { requests } from "./requests.js";
 import { priceRequest } from "./pricing.js";
+import { describeCharges, explainQuote, describeProblem } from "./quote-text.js";
 import { formatEUR, formatDate, plural } from "./format.js";
 
+// Small helper to build DOM nodes. Text is added with append(), so it is never parsed as HTML.
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -32,7 +36,7 @@ function linesTable(quote) {
   return el("table", { class: "lines" },
     el("caption", { class: "visually-hidden" }, "Price breakdown"),
     el("tbody", {},
-      quote.lines.map((line) => el("tr", {},
+      describeCharges(quote).map((line) => el("tr", {},
         el("th", { scope: "row" },
           el("span", { class: "line-label" }, line.label),
           el("span", { class: "line-detail" }, line.detail)),
@@ -63,27 +67,29 @@ function mondaysList(quote) {
 function pricedBody(quote) {
   return [
     linesTable(quote),
-    el("p", { class: "explanation" }, quote.explanation),
+    el("p", { class: "explanation" }, explainQuote(quote)),
     mondaysList(quote),
   ];
 }
 
+// No total and no partial lines: only the reason and what the customer could choose instead.
 function unavailableBody(quote) {
+  const { reason, optionsTitle, options } = describeProblem(quote, catalog);
   return [
     el("div", { class: "notice", role: "note" },
-      el("p", {}, el("strong", {}, "Cannot be priced. "), quote.reason),
+      el("p", {}, el("strong", {}, "Cannot be priced. "), reason),
       el("p", {}, "No total is shown, because any figure would leave out part of the trip."),
     ),
-    quote.available.length
+    options.length
       ? el("div", { class: "options" },
-          el("h4", {}, quote.availableTitle),
-          el("ul", {}, quote.available.map((o) => el("li", {}, el("strong", {}, o.name), el("br"), o.detail))),
+          el("h4", {}, optionsTitle),
+          el("ul", {}, options.map((option) => el("li", {}, el("strong", {}, option.name), el("br"), option.detail))),
         )
       : null,
   ];
 }
 
-function card(request) {
+function requestCard(request) {
   const quote = priceRequest(catalog, request);
   const school = catalog.schools.find((s) => s.code === request.school);
   const headingId = `request-${request.id}`;
@@ -100,4 +106,4 @@ function card(request) {
 }
 
 const container = document.getElementById("quotes");
-container.replaceChildren(...requests.map(card));
+container.replaceChildren(...requests.map(requestCard));

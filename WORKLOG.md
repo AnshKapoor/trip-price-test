@@ -88,6 +88,32 @@ What Claude built: `src/catalog.js`, `src/requests.js`, `src/pricing.js`, `src/f
 | `npm run deploy` | 22 passed. Uploaded only the 2 changed files (`index.html`, `styles.css`; the other 5 were already up). Version `61c7a61d-…`. |
 | Live check | Totals unchanged and the "How I worked" section is present with real links. **The first load after deploying used the old `styles.css`**: the browser revalidated it (300 bytes) and kept the stale copy. A direct fetch already returned the new file, and the next load applied it. Same just-after-deploy effect as in Prompt 4. 375 px: no horizontal scroll. |
 
+### Prompt 6: readability review
+
+> Review this project against the PDF requirement: "Simple, readable code that a teammate could change tomorrow." […] Keep catalog data, customer requests, pricing logic, and presentation clearly separated. […] Explain non-obvious rules, especially ISO weeks and the inclusive seasonal range. Ensure all displayed prices come from the shared pricing function. Expand the README […] include a short example prompt [for] a non-technical teammate […]. Do not add an admin interface. Preserve the pricing rules and current design. Run the existing tests after any changes […].
+
+Main finding: `src/pricing.js` mixed calculation with customer-facing wording (labels, explanation sentences, error messages, EUR formatting). A teammate changing a rule had to read past the text, and vice versa.
+
+| Change | Detail |
+|---|---|
+| Split numbers from wording | `pricing.js` now returns named `charges` (`course`, `enrolment`, `accommodation`, `seasonal`) and an explicit sum as `total`, or `{ ok: false, problem }` with a problem code. All text moved to the new `src/quote-text.js` (`describeCharges`, `explainQuote`, `describeProblem`). `app.js` renders only. |
+| Comments | Explained why ISO weeks use the Thursday of the week, with New Year examples. Explained the inclusive `[from, to]` range (26 and 35 charged, 25 and 36 not) and the New Year wrap. Added field guides at the top of `catalog.js` and `requests.js`, including the exact-name rule. |
+| Names | `isInIsoWeekRange` → `isInSeasonalRange`, `card` → `requestCard`. Spelled out single-letter names in `pricing.js` (`m` → `match`, `y/mo/d` → `year/month/day`). |
+| Slip caught in my own refactor | While rewriting, I changed `request.accommodation != null` to `!== null`. That would have turned a request with the field *missing* into "unknown accommodation" instead of "no accommodation". I reverted it before running anything, to keep behaviour unchanged. |
+| New tests (22 → 26) | A seasonal range wrapping over New Year (`[51, 2]`). The displayed lines equal the computed charges and add up to the total for every request. A data check on `catalog.js`. A data check on `requests.js`. Request 5 now also asserts that the reason contains no price. |
+| README rewritten | A layer table with exact file paths. Commands table. Recipes for changing a weekly rate, adding a school, and adding a request. A safe example prompt for a non-technical teammate. Known limitations. |
+
+Checks and actual results:
+
+| Check | Result |
+|---|---|
+| `npm test` | **26 passed, 0 failed** |
+| ISO weeks after rewriting `isoWeek()` | Node vs Python `isocalendar()` for 2020–2032: 4,749 days, **identical hash** (`cb0f9d8a…`) |
+| Planted a typo in memory (`weekly: "260"` as a string) | Only the new data check failed. The price tests **still passed**, because JavaScript turns `"260" × 3` into 780. So without the data check this typo would have gone unnoticed. |
+| Followed my own README example (MAL Standard Spanish €260 → €270) in memory | **My first README draft was wrong**: it said one test would fail, but **three** failed (the 3-week test and both 2-week Málaga tests). I corrected the README to show the real failing output and the new totals (€580 → €600, €1,000 → €1,020). |
+| Page unchanged | Compared the rendered text of all 5 cards on the local page (new code, `quote-text.js` loaded) and the live site (old code). **Identical** SHA-256 over 4,179 characters. No console errors. |
+
 ### Not done yet
 
+- Commit, push and redeploy this readability pass. The page output is identical, but these steps publish code, so they wait for approval.
 - Add `C:\Program Files\nodejs` to the system PATH, so `node`/`npm` work in new terminals (a system setting, left for the user).

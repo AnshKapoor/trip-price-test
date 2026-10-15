@@ -1,174 +1,115 @@
-// Pricing rules from the PDF:
-// - Course: weekly rate × weeks; from 4 weeks on, the long-stay rate applies to ALL weeks.
+// Pricing rules (from the task PDF). This file only works out numbers; all customer-facing
+// wording lives in quote-text.js.
+//
+// - Course: weekly rate × weeks. From LONG_STAY_WEEKS weeks on, the lower long-stay rate
+//   (weekly4plus) applies to ALL weeks, not just the weeks after the 4th.
 // - Enrolment fee: once per booking, per school.
-// - Accommodation: weekly rate × weeks; only the types listed for that school exist.
-// - Seasonal supplement: belongs to the accommodation. Charged per week for each stay week whose
-//   Monday falls in the accommodation's ISO week range (inclusive).
-// - Stays start on a Monday and last whole weeks.
-// If a request cannot be priced, we return ok: false with the reason and the available options,
-// and never a partial total.
-import { formatEUR, plural } from "./format.js";
+// - Accommodation: weekly rate × weeks. Only the types listed for that school exist.
+//   accommodation: null means the customer needs none; that is valid and costs €0.
+// - Seasonal supplement: belongs to the chosen accommodation, not the course. For each stay week
+//   whose Monday falls inside the accommodation's seasonal ISO-week range, charge perWeek once.
+// - Stays start on a Monday and last whole weeks. Dates are handled in UTC so the result never
+//   depends on the time zone of the computer running the code.
+//
+// A request that cannot be priced returns { ok: false, problem } and never a partial total.
 
 export const LONG_STAY_WEEKS = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Parse "YYYY-MM-DD" as a UTC date (no local time zone involved). Returns null if invalid.
+// Parse "YYYY-MM-DD" as midnight UTC. Returns null for malformed or impossible dates (e.g. 2027-02-30).
 export function parseDate(isoDate) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate ?? "");
-  if (!m) return null;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const date = new Date(Date.UTC(y, mo - 1, d));
-  const roundTrips = date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
-  return roundTrips ? date : null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate ?? "");
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isRealDate = date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  return isRealDate ? date : null;
 }
 
 export function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-// ISO 8601 week: weeks start on Monday; week 1 is the week containing the year's first Thursday.
+// ISO 8601 week number. ISO weeks run Monday to Sunday, and week 1 is the week that contains
+// the year's first Thursday. So every week belongs to the year its Thursday falls in: we move
+// to the Thursday of the date's week and count whole weeks from 1 January of that year.
+// Near New Year this differs from the calendar year: Mon 28 Dec 2026 is week 53 of 2026,
+// Fri 1 Jan 2027 is still week 53 of 2026, and Mon 29 Dec 2025 is week 1 of 2026.
 export function isoWeek(date) {
-  const thursday = new Date(date.getTime());
-  const dayOfWeek = date.getUTCDay() || 7; // Mon=1 … Sun=7
-  thursday.setUTCDate(date.getUTCDate() + 4 - dayOfWeek);
+  const dayOfWeek = date.getUTCDay() || 7; // Monday = 1 … Sunday = 7
+  const thursday = new Date(date.getTime() + (4 - dayOfWeek) * DAY_MS);
   const year = thursday.getUTCFullYear();
-  const week = Math.floor((thursday - Date.UTC(year, 0, 1)) / DAY_MS / 7) + 1;
-  return { year, week };
+  const daysSinceNewYear = (thursday - Date.UTC(year, 0, 1)) / DAY_MS;
+  return { year, week: Math.floor(daysSinceNewYear / 7) + 1 };
 }
 
-// Inclusive range check. A range like [50, 2] wraps over the new year.
-export function isInIsoWeekRange(week, [from, to]) {
-  return from <= to ? week >= from && week <= to : week >= from || week <= to;
+// Is an ISO week inside a seasonal range [from, to]? Both ends are INCLUDED: with [26, 35],
+// weeks 26 and 35 are charged, 25 and 36 are not. Only the week number is compared, so the
+// range repeats every year. A range with from > to wraps over New Year: [51, 2] means 51, 52, 53, 1, 2.
+export function isInSeasonalRange(week, [from, to]) {
+  if (from <= to) return week >= from && week <= to;
+  return week >= from || week <= to;
 }
 
-// The Monday of each stay week with its ISO week number.
-export function stayMondays(start, weeks) {
-  return Array.from({ length: weeks }, (_, i) => {
-    const monday = new Date(start.getTime() + i * 7 * DAY_MS);
+// One entry per stay week: the Monday it starts on and that Monday's ISO week number.
+export function stayMondays(startMonday, weeks) {
+  return Array.from({ length: weeks }, (_, weekIndex) => {
+    const monday = new Date(startMonday.getTime() + weekIndex * 7 * DAY_MS);
     return { date: toIsoDate(monday), isoWeek: isoWeek(monday).week };
   });
 }
 
-function unavailable(reason, availableTitle, available) {
-  return { ok: false, reason, availableTitle, available };
-}
-
-function describeAccommodation(acc) {
-  const season = acc.seasonal
-    ? `, plus ${formatEUR(acc.seasonal.perWeek)}/week seasonal supplement in ISO weeks ${acc.seasonal.isoWeeks[0]}–${acc.seasonal.isoWeeks[1]}`
-    : ", no seasonal supplement";
-  return { name: acc.type, detail: `${formatEUR(acc.weekly)}/week${season}` };
-}
-
 /**
- * Price one request against the catalog.
- * request: { school, course, weeks, start: "YYYY-MM-DD", accommodation: type name | null }
- * Returns { ok: true, lines, total, mondays, explanation, ... } or
- *         { ok: false, reason, availableTitle, available: [{ name, detail }] }.
+ * Price one customer request against the catalog.
+ *
+ * request: { school: "MAL", course: "Standard Spanish", weeks: 4, start: "2027-07-05",
+ *            accommodation: "Host family, single room, half board" | null }
+ *
+ * Priced:   { ok: true, total, charges: { course, enrolment, accommodation, seasonal },
+ *             school, course, accommodation, weeks, mondays, longStay, courseRate, seasonalWeeks }
+ * Problem:  { ok: false, problem, request, school? } where problem is one of
+ *           "unknown-school", "unknown-course", "invalid-weeks", "not-a-monday", "unknown-accommodation".
  */
 export function priceRequest(catalog, request) {
   const school = catalog.schools.find((s) => s.code === request.school);
-  if (!school) {
-    return unavailable(`We have no school with code "${request.school}".`, "Available schools",
-      catalog.schools.map((s) => ({ name: `${s.name} (${s.code})`, detail: `${s.city}, ${s.country}` })));
-  }
+  if (!school) return { ok: false, problem: "unknown-school", request };
 
   const course = school.courses.find((c) => c.name === request.course);
-  if (!course) {
-    return unavailable(`${school.name} does not offer "${request.course}".`, `Courses at ${school.name}`,
-      school.courses.map((c) => ({
-        name: c.name,
-        detail: `${formatEUR(c.weekly)}/week, ${formatEUR(c.weekly4plus)}/week from ${LONG_STAY_WEEKS} weeks`,
-      })));
-  }
+  if (!course) return { ok: false, problem: "unknown-course", request, school };
 
   const weeks = request.weeks;
-  if (!Number.isInteger(weeks) || weeks < 1) {
-    return unavailable(`A stay must last a whole number of weeks (got "${weeks}").`, "", []);
-  }
+  if (!Number.isInteger(weeks) || weeks < 1) return { ok: false, problem: "invalid-weeks", request, school };
 
   const start = parseDate(request.start);
-  if (!start || start.getUTCDay() !== 1) {
-    return unavailable(`Stays start on a Monday; "${request.start}" is not a Monday.`, "", []);
-  }
+  if (!start || start.getUTCDay() !== 1) return { ok: false, problem: "not-a-monday", request, school };
 
   let accommodation = null;
-  if (request.accommodation != null) {
+  if (request.accommodation != null) { // null or missing = no accommodation
     accommodation = school.accommodation.find((a) => a.type === request.accommodation);
-    if (!accommodation) {
-      return unavailable(
-        `${school.name} in ${school.city} has no "${request.accommodation}" accommodation, so this stay cannot be priced as requested.`,
-        `Accommodation available at ${school.name}`,
-        school.accommodation.map(describeAccommodation),
-      );
-    }
+    // Never substitute another type: the customer asked for something we cannot sell.
+    if (!accommodation) return { ok: false, problem: "unknown-accommodation", request, school };
   }
 
-  const mondays = stayMondays(start, weeks).map((m) => ({
-    ...m,
-    seasonal: Boolean(accommodation?.seasonal) && isInIsoWeekRange(m.isoWeek, accommodation.seasonal.isoWeeks),
+  const season = accommodation?.seasonal; // undefined when there is no accommodation or no seasonal rule
+  const mondays = stayMondays(start, weeks).map((monday) => ({
+    ...monday,
+    seasonal: season ? isInSeasonalRange(monday.isoWeek, season.isoWeeks) : false,
   }));
+  const seasonalWeeks = mondays.filter((monday) => monday.seasonal).length;
 
   const longStay = weeks >= LONG_STAY_WEEKS;
   const courseRate = longStay ? course.weekly4plus : course.weekly;
-  const seasonalWeeks = mondays.filter((m) => m.seasonal).length;
-  const seasonalRate = accommodation?.seasonal?.perWeek ?? 0;
 
-  const lines = [
-    {
-      key: "course",
-      label: `Course: ${course.name}`,
-      detail: `${plural(weeks, "week")} × ${formatEUR(courseRate)}${longStay ? ` (long-stay rate, ${LONG_STAY_WEEKS}+ weeks)` : ""}`,
-      amount: weeks * courseRate,
-    },
-    {
-      key: "enrolment",
-      label: "Enrolment fee",
-      detail: `Once per booking at ${school.name}`,
-      amount: school.enrolmentFee,
-    },
-    {
-      key: "accommodation",
-      label: accommodation ? `Accommodation: ${accommodation.type}` : "Accommodation",
-      detail: accommodation ? `${plural(weeks, "week")} × ${formatEUR(accommodation.weekly)}` : "None requested",
-      amount: accommodation ? weeks * accommodation.weekly : 0,
-    },
-    {
-      key: "seasonal",
-      label: "Seasonal supplement",
-      detail: seasonalDetail(accommodation, seasonalWeeks),
-      amount: seasonalWeeks * seasonalRate,
-    },
-  ];
-  const total = lines.reduce((sum, line) => sum + line.amount, 0);
+  const charges = {
+    course: weeks * courseRate,
+    enrolment: school.enrolmentFee,
+    accommodation: accommodation ? weeks * accommodation.weekly : 0,
+    seasonal: season ? seasonalWeeks * season.perWeek : 0,
+  };
+  const total = charges.course + charges.enrolment + charges.accommodation + charges.seasonal;
 
   return {
-    ok: true, school, course, accommodation, weeks, mondays, lines, total,
-    explanation: explain({ weeks, longStay, courseRate, school, accommodation, mondays, seasonalWeeks }),
+    ok: true, total, charges,
+    school, course, accommodation, weeks, mondays, longStay, courseRate, seasonalWeeks,
   };
-}
-
-function seasonalDetail(accommodation, seasonalWeeks) {
-  if (!accommodation) return "Applies only to accommodation";
-  if (!accommodation.seasonal) return "None for this accommodation";
-  const [from, to] = accommodation.seasonal.isoWeeks;
-  return `${plural(seasonalWeeks, "week")} × ${formatEUR(accommodation.seasonal.perWeek)} (Mondays in ISO weeks ${from}–${to})`;
-}
-
-function explain({ weeks, longStay, courseRate, school, accommodation, mondays, seasonalWeeks }) {
-  const coursePart = `${plural(weeks, "week")} of course at ${formatEUR(courseRate)}/week`
-    + (longStay ? ` (the long-stay rate, used for every week because the stay is ${LONG_STAY_WEEKS}+ weeks)` : "");
-  const feePart = `the ${formatEUR(school.enrolmentFee)} enrolment fee`;
-
-  if (!accommodation) {
-    return `${coursePart}, plus ${feePart}; no accommodation was requested, so there is no accommodation or seasonal charge.`;
-  }
-  const accPart = `${plural(weeks, "week")} of accommodation at ${formatEUR(accommodation.weekly)}/week`;
-  if (!accommodation.seasonal) {
-    return `${coursePart}, plus ${feePart} and ${accPart}; this accommodation has no seasonal supplement.`;
-  }
-  const [from, to] = accommodation.seasonal.isoWeeks;
-  const weekList = mondays.map((m) => m.isoWeek).join(", ");
-  return `${coursePart}, plus ${feePart}, ${accPart}, and a ${formatEUR(accommodation.seasonal.perWeek)} supplement for `
-    + `${seasonalWeeks} of ${weeks} stay Mondays (ISO weeks ${weekList}) falling in ISO weeks ${from}–${to}.`;
 }

@@ -1,5 +1,15 @@
-// Catalog data, copied exactly from the "Trip Price Test" PDF (page 2).
-// Prices are whole euros. Seasonal isoWeeks are an inclusive [from, to] range.
+// Catalog data, copied exactly from the "Trip Price Test" PDF (page 2). Edit prices here;
+// the page and the tests read this file directly. Run `npm test` after any change.
+//
+// Fields (all prices in whole euros):
+//   code           Short unique school code, used by requests.js (e.g. "MAL").
+//   enrolmentFee   Charged once per booking.
+//   courses[]      weekly: rate for stays under 4 weeks.
+//                  weekly4plus: rate for EVERY week when the stay is 4 weeks or longer.
+//   accommodation[] type: exact name a request must use. weekly: rate per week.
+//                  seasonal (optional): { isoWeeks: [from, to], perWeek }. Charged per stay week
+//                  whose Monday is in ISO weeks from..to, both ends included. Leave it out for
+//                  accommodation with no supplement.
 export const catalog = {
   schools: [
     {
